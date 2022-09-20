@@ -1,0 +1,36 @@
+{"actors":{
+   "moon":{"typ":"moon","pos":[0,0], "angle": 0.0, "scale": 0.00024,"children": []},
+   "shadow":{"typ":"shadow","scale":0.001, "visible": true },
+   "command":{"typ":"command","pos": [0, 0], "angle": 180.0, "scale": 0.001, "children": [
+      {"sprite":"eagle","anchor":"hatch"},
+      {"sprite":"command_rocket","anchor":"rocket"}
+   ], "bond": null},
+   "eagle":{"typ":"eagle","pos": [0, 0], "angle": 0.0, "scale": 1.0,"children": [
+      {"sprite":"descent","anchor":"coupling"},
+      {"sprite":"eagle_rocket","anchor":"rocket"},
+      {"sprite":"eagle_left_up_thruster","anchor":"left_up_thruster"},
+      {"sprite":"eagle_right_up_thruster","anchor":"right_up_thruster"},
+      {"sprite":"eagle_left_dn_thruster","anchor":"left_dn_thruster"},
+      {"sprite":"eagle_right_dn_thruster","anchor":"right_dn_thruster"},
+      {"sprite":"eagle_left_thruster","anchor":"left_thruster"},
+      {"sprite":"eagle_right_thruster","anchor":"right_thruster"},
+      {"sprite":"eagle_fireball","anchor":"centre"}
+   ], "bond": "hatch"},
+   "command_rocket":{"typ":"rocket_flames","pos": [0, 0], "angle": 180.0, "scale": 2.0, "bond": "head", "visible": false },
+   "eagle_rocket":{"typ":"rocket_flames","pos": [0, 0], "angle": 0.0, "scale": 0.5, "bond": "head", "visible": false },
+   "eagle_left_up_thruster":{"typ":"rocket_flames","pos": [0, 0], "angle": 180.0, "scale": 0.3, "bond": "head", "visible": false },
+   "eagle_right_up_thruster":{"typ":"rocket_flames","pos": [0, 0], "angle": 180.0, "scale": 0.3, "bond": "head", "visible": false },
+   "eagle_left_dn_thruster":{"typ":"rocket_flames","pos": [0, 0], "angle": 0.0, "scale": 0.3, "bond": "head", "visible": false },
+   "eagle_right_dn_thruster":{"typ":"rocket_flames","pos": [0, 0], "angle": 0.0, "scale": 0.3, "bond": "head", "visible": false },
+   "eagle_left_thruster":{"typ":"rocket_flames","pos": [0, 0], "angle": 90.0, "scale": 0.3, "bond": "head", "visible": false },
+   "eagle_right_thruster":{"typ":"rocket_flames","pos": [0, 0], "angle": -90.0, "scale": 0.3, "bond": "head", "visible": false },
+   "descent":{"typ":"descent","pos": [0, 0], "angle": 0.0, "scale": 1.0,"children": [
+     {"sprite":"descent_rocket","anchor":"rocket"},
+     {"sprite":"descent_fireball","anchor":"centre"}
+   ], "bond": "coupling"},
+   "descent_rocket":{"typ":"rocket_flames","pos": [0, 0], "angle": 0.0, "scale": 1.0, "bond": "head", "visible": false },
+   "flame":{"typ":"rocket_flames","pos": [0, 0], "angle": 0.0, "scale": 0.001, "visible": false },
+   "eagle_fireball":{"typ":"fireball","scale":1, "bond": "centre","visible": false },
+   "descent_fireball":{"typ":"fireball","scale":1, "bond": "centre","visible": false }
+   }
+}  
