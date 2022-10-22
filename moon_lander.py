@@ -58,7 +58,7 @@ class Object2D:
     name = "Unknown"
     position = [0,0]  #can't use this initial value directly as it is a shared object
     angle = 0.0   #in degrees
-    scale = 0.001
+    scale = 1.0
     origin = [0,0]  #shared values
 
     def __init__(self, ctx, aspect, name, texture, errors, **kwargs):
@@ -367,6 +367,9 @@ class Sprite(Object2D):
       if not self.parent:
         return
       #endif  
+      if self.divorced: #already divorced
+        return
+      #endif 
       self.vel = list(self.parent.vel)
       self.rot_vel = self.parent.rot_vel
       self.predivorceState = self.getState()
@@ -423,6 +426,9 @@ class Sprite(Object2D):
     #enddef
     
     def undivorce(self):
+      if not self.divorced: #already has parent
+        return
+      #endif  
       self.divorced = False
       if not self.parent:
         return;
@@ -500,6 +506,7 @@ class Sprite(Object2D):
         if sprite.divorced:
           continue
         #endif
+        sprite.origin = self.origin  #use parent's origin
         try:
           anchor_pos = self.locs[child["anchor"]]
         except:
@@ -806,7 +813,9 @@ class game(mglw.WindowConfig):
     spriteToKm = screenToKm*0.001
     kmToSprite = 1/spriteToKm
     minEagleHeight = 15000
-    orbit_height = 0.2  #104  #km
+    orbit_height = 0.2
+    max_orbit_height = 2
+    proper_orbit_height = 104  #km
     alt = orbit_height
     orbit_speed = 150   #real speed = 1515  #m/s or 1633 m/s? Reduced so that it doesn't take 500seconds to deorbit
     # total eagle mass for descent = 4740 + 10334 = 15074kg =>45000/15000 = 3m/s2 => 1515/3 = 500sec (must be less due to lower weight after fuel is used)
@@ -831,13 +840,14 @@ class game(mglw.WindowConfig):
         pygame.joystick.init()
         self.joysticks = pygame.joystick.get_count()
         self.joyimg = pygame.image.load("images/attack3.png")
-        #print("Joysticks:",joysticks)
-        '''if self.joysticks > 0:
-          joystick_server = udp_server_class()
-          joystick.init()
-          print("Init joystick ",joystick.get_numbuttons()," buttons,",joystick.get_numaxes()," axis")
-        #endif'''
-        self.joystick_server = udp_server_class() 
+        print("Joysticks:",self.joysticks)
+        if self.joysticks > 0:
+          self.joystick_server = udp_server_class()
+          #pygame joystick doesn't work well with modernGl_window
+          #joystick.init()
+          #print("Init joystick ",joystick.get_numbuttons()," buttons,",joystick.get_numaxes()," axis")
+        #endif
+        #self.joystick_server = udp_server_class() 
     #enddef
 
     def loadSprites(self, sprites):
@@ -959,9 +969,9 @@ class game(mglw.WindowConfig):
     
     def readJoystick(self,time=None):
         if not self.joystick_server:
-          return 0
+          #print("No")
+          return -1
         #endif  
-        rocket = -1
         rocket = 0
         while True:
           message,address = self.joystick_server.get()
@@ -1054,11 +1064,13 @@ class game(mglw.WindowConfig):
         #endif
         translation = Matrix44.from_translation(pos, dtype='f4')
         for sprite in self.sprites.values():
-          if sprite.name != "moon" and sprite.name != "flame":
-            sprite.origin = self.origin_pos
-          if sprite.parent == None or sprite.divorced:
-            sprite.render(translation, time)
+          if sprite.parent != None and not sprite.divorced:
+            continue
           #endif
+          if not sprite.name in ("moon","flame","altimeter"):
+            sprite.origin = self.origin_pos
+          #endif
+          sprite.render(translation, time)
         #endif  
         self.pg_texture.use()
         self.render_cnt += 1
@@ -1082,28 +1094,28 @@ class game(mglw.WindowConfig):
         descent = self.sprites["descent"]
         shadow = self.sprites["shadow"]
         rocket = self.readJoystick(time)
-        if rocket >= 0:  #valid joystick   
+        if rocket >= 0:  #valid joystick
+          print("Rocket:",rocket)   
           if self.jbtns[5] or self.jbtns[6] or self.jbtns[7] or self.jbtns[8] or self.jbtns[9] or  self.jbtns[10] or self.jbtns[11]:
             self.reset()     #won't use self.jbtns[3] or self.jbtns[4] for this
           elif eagle.divorced:
-            self.showInstructions = False
             if descent.divorced:
-              self.rocket_eagle = rocket
+              self.rocket_eagle = rocket   #apply rocket to eagle ascent rocket
             else:
-              if self.jbtns[2]:
+              if self.jbtns[2]:  #undock from descent lander
                 descent.divorce(self.aspect)
                 eagle.down = False
                 self.showSuccess = False
               else:      
-                self.rocket_descent = rocket
+                self.rocket_descent = rocket  #otherwise apply rocket throttle to descent rocket
               #endif  
             #endif
           else:
-            if self.jbtns[1]:      
+            if self.jbtns[1]:  #undock from command module    
               eagle.divorce(self.aspect)
               self.sprites["shadow"].visible = True
             else:
-              self.rocket_command = rocket
+              self.rocket_command = rocket  #otherwise apply rocket throttle to command module rocket
             #endif
           #endif  
           if self.jbtns[3]:
@@ -1132,8 +1144,9 @@ class game(mglw.WindowConfig):
         fy = 0
         fr = 0
         #adjust origin to match object vehicle, also move neutral down as approaching ground
-        if self.modeFrac < 1.0:
+        if self.alt > 0.02:  # and self.modeFrac < 1.0:
           top_high = vehicle.position[1] - self.modeFrac*500 #screen to stop scrolling after 1/2 screen
+          #rint("Top high:",top_high)
           self.origin_pos[1] = top_high
         #enddef
         self.origin_pos[0] = self.origin_pos[0]*(1-frame_time*10) + vehicle.position[0]*frame_time*10
@@ -1234,6 +1247,7 @@ class game(mglw.WindowConfig):
         lp = land_pos + self.origin_pos[1]
         shadow.position[0] = eagle.position[0]
         if eagle.divorced:  #not connected so can fly by itself
+          self.showInstructions = False
           self.service(command,frame_time)
           if eagle.down:
             self.alt = 0
@@ -1244,11 +1258,11 @@ class game(mglw.WindowConfig):
               print("got to herE")
               exit(1)
               return
-            #endif ''' 
+            #endif '''
           else:
             km = eagle.position[1]*self.spriteToKm
             #rint(eagle.position[1],"Eagle km:",km,self.orbit_height)
-            self.alt = self.orbit_height + km
+            self.alt = self.orbit_height + km   #km is negative from orbit start
             #rint(self.alt)
             if self.alt < 0.02:
               #rint("Getting close")
@@ -1258,9 +1272,12 @@ class game(mglw.WindowConfig):
               self.modeFrac = 1
               self.adjScalePos(1,2) 
             elif km > 0:
-              self.modeFrac = 0
-              self.adjScalePos(1,2)
+              self.modeFrac = math.pow(km/self.max_orbit_height,0.5)
+              print("Mode frac:",self.modeFrac)
+              self.adjScalePos(1,0)
+              #endif    
             else:
+              #self.modeFrac = math.pow(km/(0.02-self.orbit_height),0.5)
               self.modeFrac = km/(0.02-self.orbit_height)
               #rint("Mode frac:",self.modeFrac)
               self.adjScalePos(1,2)
@@ -1273,6 +1290,16 @@ class game(mglw.WindowConfig):
             shadow.position[1] = (self.sprites["moon"].position[1]+self.modeFrac)*(1-self.modeFrac) + (2*lp - eagle.position[1])*self.modeFrac
           #endif          
         #endif  
+        true_alt = self.alt*1000  #-(land_pos*self.spriteToKm))*1000
+        #print("land pos:",land_pos,land_pos*self.spriteToKm)
+        feet_alt = true_alt*3.28084
+        #feet_alt = 1100
+        hundreds = feet_alt/100 % 10
+        thousands = feet_alt/1000 % 10
+        self.sprites["altimeter_minute"].angle = hundreds*36
+        self.sprites["altimeter_hour"].angle = thousands*36
+        #print("hundreds:",hundreds)
+
         if descent.divorced: #not connected to flys by itself
           if descent.down:
             self.serviceCrash("descent_fireball",descent,land_pos,frame_time)
@@ -1294,7 +1321,8 @@ class game(mglw.WindowConfig):
     #enddef
     
     def serviceLander(self,nm,target,lp):
-      if target.position[1] < lp and not target.down:  #touch down
+      true_alt = target.position[1]-lp
+      if true_alt < 0  and not target.down:  #touch down
         target.down = True
         print("Touch down:",target.vel, target.position[1],lp)
         target.position[1] = lp 
@@ -1510,17 +1538,29 @@ class game(mglw.WindowConfig):
         if self.showCrashBlurb:
           self.print("Material from this crash was ejected into lunar orbit",(150,100),(0,0,255),self.font2)
           self.print("making it unsafe to return for the next million years",(150,150),(0,0,255),self.font2)
-          self.print("Press buttons 6 to 11 to reset",(400,250),(128,128,0),self.font2)
+          if self.joystick_server:
+            self.print("Press buttons 6 to 11 to reset",(400,250),(128,128,0),self.font2)
+          else:
+            self.print("Press End key to reset",(400,250),(128,128,0),self.font2)
+          #endif  
         elif self.showSuccessBlurb:
           self.print("Congratuations! You have landed safely on the moon",(180,100),(0,255,0),self.font2)
-          self.print("Press button 3 to attempt redocking with command module (impossible!)",(150,150),(255,0,0),self.font2)
-          self.print("Press buttons 6 to 11 to reset",(400,250),(128,128,0),self.font2) 
+          if self.joystick_server:
+            self.print("Press button 3 to attempt redocking with command module (impossible!)",(150,150),(255,0,0),self.font2)
+            self.print("Press buttons 6 to 11 to reset",(400,250),(128,128,0),self.font2)
+          else:
+            self.print("Press Home key to attempt redocking with command module  (impossible!)",(150,150),(255,0,0),self.font2)
+            self.print("Press End key to reset",(400,250),(128,128,0),self.font2)
+          #endif  
         elif self.showWait:
           self.print("Please wait while we get the moon turning.",(400,self.window_size[1]-150),(0,255,255),self.font2)        
         elif self.showInstructions:
           self.print("Attempt to land on the moon.",(400,self.window_size[1]-150),(0,255,255),self.font2)
           self.print("Orbit height and orbit speed have been reduced for expedience",(100,self.window_size[1]-100),(0,128,0),self.font2)
-          self.print("Press buttons 2 to undock from command module",(200,self.window_size[1]-50),(255,255,0),self.font2) 
+          if self.joystick_server:
+            self.print("Press button 2 to undock from command module",(200,self.window_size[1]-50),(255,255,0),self.font2)
+          else:
+            self.print("Press numpad zero key to undock from command module",(200,self.window_size[1]-50),(255,255,0),self.font2) 
            
         #endif
         if not eagle.divorced and self.joysticks > 0:
@@ -1544,7 +1584,7 @@ class game(mglw.WindowConfig):
         keys = self.wnd.keys
         print("SLASH:",keys.SLASH)
         #rint(dir(keys))
-        #'A', 'ACTION_PRESS', 'ACTION_RELEASE', 'B', 'BACKSLASH', 'BACKSPACE', 'C', 'CAPS_LOCK', 'COMMA', 'D', 'DELETE', 'DOWN', 'E', 'END', 'ENTER', 'EQUAL', 'ESCAPE', 'F', 'F1', 'F10', 'F11', 'F12', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'G', 'H', 'HOME', 'I', 'INSERT', 'J', 'K', 'L', 'LEFT', 'LEFT_BRACKET', 'M', 'MINUS', 'N', 'NUMBER_0', 'NUMBER_1', 'NUMBER_2', 'NUMBER_3', 'NUMBER_4', 'NUMBER_5', 'NUMBER_6', 'NUMBER_7', 'NUMBER_8', 'NUMBER_9', 'NUMPAD_0', 'NUMPAD_1', 'NUMPAD_2', 'NUMPAD_3', 'NUMPAD_4', 'NUMPAD_5', 'NUMPAD_6', 'NUMPAD_7', 'NUMPAD_8', 'NUMPAD_9', 'O', 'P', 'PAGE_DOWN', 'PAGE_up', 'PERIOD', 'Q', 'R', 'RIGHT', 'RIGHT_BRACKET', 'S', 'SEMICOLON', 'SLASH', 'SPACE', 'T', 'TAB', 'U', 'up', 'V', 'W', 'X', 'Y', 'Z'
+        #'A', 'ACTION_PRESS', 'ACTION_RELEASE', 'B', 'BACKSLASH', 'BACKSPACE', 'C', 'CAPS_LOCK', 'COMMA', 'D', 'DELETE', 'DOWN', 'E', 'END', 'ENTER', 'EQUAL', 'ESCAPE', 'F', 'F1', 'F10', 'F11', 'F12', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'G', 'H', 'HOME', 'I', 'INSERT', 'J', 'K', 'L', 'LEFT', 'LEFT_BRACKET', 'M', 'MINUS', 'N', 'NUMBER_0', 'NUMBER_1', 'NUMBER_2', 'NUMBER_3', 'NUMBER_4', 'NUMBER_5', 'NUMBER_6', 'NUMBER_7', 'NUMBER_8', 'NUMBER_9', 'NUMPAD_0', 'NUMPAD_1', 'NUMPAD_2', 'NUMPAD_3', 'NUMPAD_4', 'NUMPAD_5', 'NUMPAD_6', 'NUMPAD_7', 'NUMPAD_8', 'NUMPAD_9', 'O', 'P', 'PAGE_DOWN', 'PAGE_UP', 'PERIOD', 'Q', 'R', 'RIGHT', 'RIGHT_BRACKET', 'S', 'SEMICOLON', 'SLASH', 'SPACE', 'T', 'TAB', 'U', 'up', 'V', 'W', 'X', 'Y', 'Z'
         mods = self.wnd.modifiers
         #rint(dir(mods))
         #'alt', 'ctrl', 'shift'
@@ -1568,124 +1608,136 @@ class game(mglw.WindowConfig):
             self.alt_pressed = True
           #endif
           #rint("Mods:",self.shift_pressed,self.cntrl_pressed,self.alt_pressed)
-          for i, sprite in enumerate(self.sprites.values()):
-            #rint(i,sprite)
-            mask = 1 << i
-            if sprite.selected:
-              if self.arrow_key_mode == 0:
-                if key == keys.LEFT:
-                  sprite.angle -= dangle
-                elif key == keys.RIGHT:
-                  sprite.angle += dangle
-                elif key == keys.UP:
-                  sprite.scale *= 0.9
-                elif key == keys.DOWN:
-                  sprite.scale *= 1.1
-                #endif
-              else:   
-                if key == keys.LEFT:
-                  sprite.position[0] -= dpos
-                elif key == keys.RIGHT:
-                  sprite.position[0] += dpos
-                elif key == keys.UP:
-                  sprite.position[1] += dpos
-                elif key == keys.DOWN:
-                  sprite.position[1] -= dpos
-                #endif
-              #endif
-              if key == keys.D:
-                if sprite.divorced:
-                  sprite.undivorce()
-                else:  
-                  sprite.divorce(self.aspect)
-                #endif  
-                #rint("D:",sprite.divorced)
-              #endif  
-            #endif
-          #endfor        
           if key == keys.SPACE:
             self.pause = not self.pause
-          elif key == keys.A:
-            if mods.ctrl:
-              for sp in self.sprites.values():
-                sp.selected = True
-                sp.showBackground(True)
-                sp.showLocs(True)
+          #endif  
+          if self.pause:
+            for i, sprite in enumerate(self.sprites.values()):
+              #rint(i,sprite)
+              mask = 1 << i
+              if sprite.selected:
+                if self.arrow_key_mode == 0:
+                  if key == keys.LEFT:
+                    sprite.angle -= dangle
+                  elif key == keys.RIGHT:
+                    sprite.angle += dangle
+                  elif key == keys.UP:
+                    sprite.scale *= 0.9
+                  elif key == keys.DOWN:
+                    sprite.scale *= 1.1
+                  #endif
+                else:   
+                  if key == keys.LEFT:
+                    sprite.position[0] -= dpos
+                  elif key == keys.RIGHT:
+                    sprite.position[0] += dpos
+                  elif key == keys.UP:
+                    sprite.position[1] += dpos
+                  elif key == keys.DOWN:
+                    sprite.position[1] -= dpos
+                  #endif
+                #endif
+                if key == keys.D:
+                  if sprite.divorced:
+                    sprite.undivorce()
+                  else:  
+                    sprite.divorce(self.aspect)
+                  #endif  
+                  #rint("D:",sprite.divorced)
+                #endif  
+              #endif
+            #endfor
+            if key == keys.I:
+              self.moon.radius.value *= 0.999
+              print("radius:",self.moon.radius.value)
+            elif key == keys.O:
+              self.moon.radius.value *= 1.001
+              print("radius:",self.moon.radius.value)
+            elif key == keys.COMMA:
+              self.modeChange = 1
+              self.modeFrac = 0
+            elif key == keys.PERIOD:
+              self.modeChange = 2
+              self.modeFrac = 0
+            elif key == keys.SLASH:
+              self.modeChange = 3
+              self.modeFrac = 0
+            elif key == keys.S:
+              if mods.ctrl:
+                self.saveConfig()
+              #endif  
+            elif key == keys.H:
+              self.showhidden = not self.showhidden
+              for sprite in self.sprites.values():
+                if sprite.selected:
+                  sprite.showBackground(self.showhidden)
+                #endif
               #endfor
-            elif mods.shift:
-              for sp in self.sprites.values():
-                sp.selected = False
-                sp.showBackground(False)
-                sp.showLocs(False)
+            elif key == keys.L:
+              self.showlocs = not self.showlocs
+              for sprite in self.sprites.values():
+                if sprite.selected:
+                  sprite.showLocs(self.showlocs)
+                #endif
               #endfor
-            #endif
-          elif key == keys.I:
-            self.moon.radius.value *= 0.999
-            print("radius:",self.moon.radius.value)
-          elif key == keys.O:
-            self.moon.radius.value *= 1.001
-            print("radius:",self.moon.radius.value)
-          elif key == keys.COMMA:
-            self.modeChange = 1
-            self.modeFrac = 0
-          elif key == keys.PERIOD:
-            self.modeChange = 2
-            self.modeFrac = 0
-          elif key == keys.SLASH:
-            self.modeChange = 3
-            self.modeFrac = 0
-          elif key == keys.S:
-            if mods.ctrl:
-              self.saveConfig()
+            elif key == keys.M:
+              self.arrow_key_mode = 1 - self.arrow_key_mode
+            elif key == keys.HOME:
+              self.moon.adj_pos(0,0.1)
+            elif key == keys.END:
+              self.moon.adj_pos(0,-0.1)
+            elif key == keys.PAGE_UP:
+              self.moon.adj_scale(1.1)
+            elif key == keys.PAGE_DOWN:
+              self.moon.adj_scale(0.9)
+            elif key == keys.NUMBER_1:
+              self.sprites[0].selected = not self.sprites[0].selected 
+            elif key == keys.NUMBER_2:
+              self.sprites[1].selected = not self.sprites[1].selected 
+            elif key == keys.A:
+              if mods.ctrl:
+                for sp in self.sprites.values():
+                  sp.selected = True
+                  sp.showBackground(True)
+                  sp.showLocs(True)
+                #endfor
+              elif mods.shift:
+                for sp in self.sprites.values():
+                  sp.selected = False
+                  sp.showBackground(False)
+                  sp.showLocs(False)
+                #endfor
+              #endif
             #endif  
-          elif key == keys.H:
-            self.showhidden = not self.showhidden
-            for sprite in self.sprites.values():
-              if sprite.selected:
-                sprite.showBackground(self.showhidden)
-              #endif
-            #endfor
-          elif key == keys.L:
-            self.showlocs = not self.showlocs
-            for sprite in self.sprites.values():
-              if sprite.selected:
-                sprite.showLocs(self.showlocs)
-              #endif
-            #endfor
-          elif key == keys.M:
-            self.arrow_key_mode = 1 - self.arrow_key_mode
-          elif key == keys.HOME:
-            self.moon.adj_pos(0,0.1)
-          elif key == keys.END:
-            self.moon.adj_pos(0,-0.1)
-          elif key == keys.PAGE_UP:
-            self.moon.adj_scale(1.1)
-          elif key == keys.PAGE_DOWN:
-            self.moon.adj_scale(0.9)
-          elif key == keys.NUMBER_1:
-            self.sprites[0].selected = not self.sprites[0].selected 
-          elif key == keys.NUMBER_2:
-            self.sprites[1].selected = not self.sprites[1].selected 
-          elif key == keys.NUMPAD_1:
-            self.rocket_left_dn = 1
-          elif key == keys.NUMPAD_3:
-            self.rocket_right_dn = 1
-          elif key == keys.NUMPAD_4:
-            self.rocket_left = 1
-          elif key == keys.NUMPAD_6:
-            self.rocket_right = 1
-          elif key == keys.NUMPAD_7:
-            self.rocket_left_up = 1
-          elif key == keys.NUMPAD_9:
-            self.rocket_right_up = 1
-          elif key == keys.NUMPAD_8:
-            self.rocket_descent = 1
-          elif key == keys.NUMPAD_5:
-            rocket_eagle = 1
-          elif key == keys.NUMPAD_2:
-            self.rocket_command = 1
-          elif key == keys.NUMPAD_0:
-            self.sprites['eagle'].divorce(self.aspect)
+          else:        
+            if key == keys.NUMPAD_1:
+              self.rocket_left_dn = 1
+            elif key == keys.NUMPAD_3:
+              self.rocket_right_dn = 1
+            elif key == keys.NUMPAD_4:
+              self.rocket_left = 1
+            elif key == keys.NUMPAD_6:
+              self.rocket_right = 1
+            elif key == keys.NUMPAD_7:
+              self.rocket_left_up = 1
+            elif key == keys.NUMPAD_9:
+              self.rocket_right_up = 1
+            elif key == keys.NUMPAD_8:
+              self.rocket_descent = 1
+            elif key == keys.NUMPAD_5:
+              rocket_eagle = 1
+            elif key == keys.NUMPAD_2:
+              self.rocket_command = 1
+            elif key == keys.NUMPAD_0:
+              self.sprites['eagle'].divorce(self.aspect)
+              self.sprites["shadow"].visible = True
+            elif key == keys.HOME:
+              self.sprites['descent'].divorce(self.aspect)
+              self.sprites['eagle'].down = False
+              self.showSuccess = False
+            elif key == keys.END:
+              self.reset()
+            #endif
           #endif
         elif action == self.wnd.keys.ACTION_RELEASE:
           if key == left_shift_key or key == right_shift_key:
